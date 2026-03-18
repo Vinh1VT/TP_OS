@@ -9,7 +9,7 @@
 
 char* generatePrompt() {
     char* user = getenv("USER");
-    size_t len = 10;
+    size_t len = 30;
     char* host = malloc(len*sizeof(char));
 
     if (gethostname(host,len)==-1) {

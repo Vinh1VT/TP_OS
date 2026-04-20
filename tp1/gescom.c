@@ -3,21 +3,21 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include "gescom.h"
-#include "../tp2/servcreme.h"
-#include "../tp2/clicreme.h"
+#include "../tp3/servtp3.h"
 
 static Commande tableauCommande[NBMAXC];
 static int NBCom = 0;
-static int serverPID=-1;
+static pthread_t thread_udp;
+static pthread_t thread_tcp; // Ajout du thread TCP pour l'étape 3
 
 char ** Mots = NULL;
 int NMots = 0;
 
-/// Construit un message à partir des argv séparés. Utile pour le client beuip
+/// Construit un message à partir des argv séparés.
 void construireMessage(int argc, char* argv[], int index_debut, char* messageOut) {
     messageOut[0] = '\0';
-
     for (int i = index_debut; i < argc; i++) {
         strcat(messageOut, argv[i]);
         if (i < argc - 1) {
@@ -37,12 +37,10 @@ int changeDirectory(int argc,char* argv[]) {
         perror("Pas assez d'arguments. Utilisation: cd dossier");
         return 1;
     }
-
     if (chdir(argv[1]) == -1) {
         perror("cd");
         return 1;
     }
-
     return 0;
 }
 int printWorkingDirectory(int argc,char* argv[]) {
@@ -53,56 +51,86 @@ int printWorkingDirectory(int argc,char* argv[]) {
     }else {
         perror("pwd");
     }
-
     return 0;
 }
 
-/// Démarrage et extinction du serveur BEUIP
+/// Démarrage et extinction du serveur BEUIP (Étape 1.1 et 3.1)
 int Beuip(int argc, char* argv[]) {
     if (argc < 2) {
         printf("Utilisation: beuip <commande> \n");
         return 1;
     }
+
     if (strcmp(argv[1],"start")==0) {
         if (argc < 3) {
             printf("Utilisation: beuip start <pseudo> \n");
             return 1;
         }
-        pid_t pid = fork();
-        if (pid == -1) {
-            perror("fork");
+        if (serveur_actif) {
+            printf("Le serveur est déjà actif.\n");
             return 1;
         }
-        if (pid == 0) {
-            //Code du fils
-            serveurBEUIP(argv[2]);
-            exit(0);
-        }else {
-            //Code du père
-            serverPID = pid;
-            printf("Serveur beuip démarré avec le pseudo '%s' (PID: %d)\n", argv[2], pid);
+
+        if (pthread_create(&thread_udp, NULL, serveur_udp, argv[2]) != 0) {
+            perror("pthread_create udp");
+            return 1;
         }
-    }else if (strcmp(argv[1],"stop")==0) {
-        if (serverPID == -1) {
+
+        if (pthread_create(&thread_tcp, NULL, serveur_tcp, "reppub") != 0) {
+            perror("pthread_create tcp");
+            return 1;
+        }
+
+        printf("Serveurs UDP et TCP démarrés avec le pseudo '%s'\n", argv[2]);
+
+    } else if (strcmp(argv[1],"stop")==0) {
+        if (!serveur_actif) {
             printf("Aucun serveur en cours d'exécution.\n");
             return 1;
         }
-        struct sockaddr_in serv_addr;
-        int sock = initSocket(&serv_addr);
-        if (sock != -1) {
-            sendto(sock, "0BEUIPquit", 10, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-            close(sock);
+
+        commande('0', NULL, NULL);
+
+        pthread_join(thread_udp, NULL);
+
+        pthread_cancel(thread_tcp);
+        pthread_join(thread_tcp, NULL);
+
+        printf("Serveurs arrêtés avec succès.\n");
+
+    } else if (strcmp(argv[1], "ls") == 0) {
+        if (argc < 3) {
+            printf("Utilisation: beuip ls <pseudo>\n");
+            return 1;
         }
-        waitpid(serverPID, NULL, 0);
-        serverPID = -1;
-        printf("Serveur arrêté avec succès.\n");
+        if (!serveur_actif) {
+            printf("Connectez-vous au réseau (beuip start <pseudo>) avant de lister.\n");
+            return 1;
         }
+        demandeListe(argv[2]);
+
+    } else if (strcmp(argv[1], "get") == 0) {
+        if (argc < 4) {
+            printf("Utilisation: beuip get <pseudo> <nomfic>\n");
+            return 1;
+        }
+        if (!serveur_actif) {
+            printf("Connectez-vous au réseau (beuip start <pseudo>) avant de télécharger.\n");
+            return 1;
+        }
+        demandeFichier(argv[2], argv[3]);
+
+    } else {
+        printf("Commande beuip non reconnue.\n");
+        return 1;
+    }
+
     return 0;
 }
 
-/// Envoi de messages par le client, au seveur BEUIP
+/// Envoi de messages (Étape 1.2)
 int Mess(int argc,char* argv[]) {
-    if (serverPID == -1 ) {
+    if (!serveur_actif) {
         printf("Connectez vous au réseau avant d'envoyer un message (beuip start <pseudo>)\n");
         return 1;
     }
@@ -112,33 +140,31 @@ int Mess(int argc,char* argv[]) {
     }
 
     if (strcmp(argv[1],"list")==0) {
-        return clientBEUIP('3',NULL,NULL);
-    }else if (strcmp(argv[1],"send")==0) {
+        commande('3', NULL, NULL);
+        return 0;
+    } else if (strcmp(argv[1],"send")==0) {
         if (argc < 4) {
             printf("utilisation : mess send <pseudo> <message>\n");
             return 1;
         }
-
         char message[1024];
         construireMessage(argc,argv,3,message);
-
-        return clientBEUIP('4',message,argv[2]);
-    }else if (strcmp(argv[1],"broadcast")==0) {
+        commande('4', message, argv[2]);
+        return 0;
+    } else if (strcmp(argv[1],"broadcast")==0) {
         if (argc < 3) {
             printf("utilisation : mess broadcast <message>\n");
             return 1;
         }
         char message[1024];
         construireMessage(argc,argv,2,message);
-        return clientBEUIP('5',message,NULL);
+        commande('5', message, NULL);
+        return 0;
     }
+
     printf("mess : commande non reconnue\n");
     return 1;
 }
-
-/// FONCTIONS
-
-
 
 void ajouteCom(char* Nom, int (*fonction)(int argc,char* argv[])) {
     if (NBCom >= NBMAXC) {
@@ -149,7 +175,6 @@ void ajouteCom(char* Nom, int (*fonction)(int argc,char* argv[])) {
         .Nom = Nom,
         .fonction = fonction
         };
-
     tableauCommande[NBCom] = commande;
     NBCom++;
 }
@@ -161,13 +186,11 @@ void majComInt(void) {
     ajouteCom("beuip",Beuip);
     ajouteCom("mess",Mess);
 }
-
 void listComInt(void) {
     for (int i = 0; i < NBCom; i++) {
-        printf("%s",tableauCommande[i].Nom);
+        printf("%s\n",tableauCommande[i].Nom);
     }
 }
-
 int execComInt(int argc, char* argv[]) {
     if (argv[0]==NULL) {
         return 0;
@@ -180,9 +203,7 @@ int execComInt(int argc, char* argv[]) {
     }
     return 0;
 }
-
 int analyseCom(char* b) {
-
     if (Mots != NULL) {
         for (int i =0;i<NMots;i++) {
             free(Mots[i]);
@@ -191,65 +212,46 @@ int analyseCom(char* b) {
         Mots = NULL;
     }
     NMots = 0;
-
     const char* delimiteurs = " \t\n";
-    char * chaine = strdup(b); // Remplacement demandé
+    char * chaine = strdup(b);
     char* reste = chaine;
     char* token;
-
     while ((token=strsep(&reste,delimiteurs))!=NULL) {
         if (*token!='\0') {
             NMots++;
         }
     }
     free(chaine);
-
     Mots = malloc((NMots+1)*sizeof(char*));
     int compteur = 0;
-    chaine = strdup(b); // Remplacement demandé
+    chaine = strdup(b);
     reste = chaine;
     while ((token=strsep(&reste,delimiteurs))!=NULL) {
         if (*token!='\0') {
-            Mots[compteur] = strdup(token); // Remplacement demandé
+            Mots[compteur] = strdup(token);
             compteur++;
         }
-
     }
     Mots[compteur] = NULL;
     free(chaine);
-
-
-    //Renvoie le nombre de mots de la commande
     return NMots;
 }
-
 int execComExt(char** P) {
-
     if (P==NULL) {
         return 0;
     }
-
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
         exit(-1);
     }
-
     if (pid == 0) {
-        //Code du fils
-
         execvp(P[0], P);
-
-        //SI ça ne termine pas
         perror(P[0]);
         exit(-1);
     }else {
-        //Code du pere
         int status;
-
         waitpid(pid, &status, 0);
-
     }
     return 0;
 }
-

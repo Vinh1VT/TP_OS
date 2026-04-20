@@ -6,9 +6,11 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include "gescom.h"
+#include <readline/history.h>
 
 char* generatePrompt() {
     char* user = getenv("USER");
+    if (user==NULL) user = "user"; // Sécurité pour ne pas planter
     size_t len = 30;
     char* host = malloc(len*sizeof(char));
 

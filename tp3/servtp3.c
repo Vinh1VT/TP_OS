@@ -10,11 +10,39 @@
 #include "servtp3.h"
 #include <ifaddrs.h>
 #include <netdb.h>
+#include <readline/readline.h>
+
+#ifndef BROADCAST_IP
+#define BROADCAST_IP "192.168.88.255"
+#endif
+
+#ifdef TRACE
+    #define DEBUG 1
+#else
+    #define DEBUG 0
+#endif
+
 
 #define PORT 9998
 #define LBUF 512
 #define IP_BASE ((192U << 24) | (168 << 16) | (88 << 8))
 #define DEBUG 0
+
+
+
+//Libere la mémoire du serveur
+void viderListeContacts() {
+    pthread_mutex_lock(&mutex_contacts);
+    struct elt *courant = liste_contacts;
+    while (courant != NULL) {
+        struct elt *suivant = courant->next;
+        free(courant);
+        courant = suivant;
+    }
+    liste_contacts = NULL;
+    pthread_mutex_unlock(&mutex_contacts);
+}
+
 
 // Définition des variables globales
 bool serveur_actif = false;
@@ -29,6 +57,7 @@ char * addrip(unsigned long A) {
 
 /// Initialise le socket du serveur
 int initServer(struct sockaddr_in *socketConf) {
+    memset(socketConf, 0, sizeof(struct sockaddr_in));
     int sid;
     if ((sid = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
         perror("socket");
@@ -57,11 +86,26 @@ int initServer(struct sockaddr_in *socketConf) {
 
 /// Envoie un message en broadcast sur toutes les interfaces réseau valides
 int sendBroadcastConnection(int sid, char Code, char* message) {
+    char buf[LBUF];
+    sprintf(buf, "%cBEUIP%s", Code, message);
+
+    //Code avec l'adresse définie en #define
+    struct sockaddr_in broadcastSock = {0};
+    broadcastSock.sin_family = AF_INET;
+    broadcastSock.sin_port = htons(PORT);
+    inet_pton(AF_INET, BROADCAST_IP, &broadcastSock.sin_addr);
+
+    if (sendto(sid, buf, strlen(buf), 0, (struct sockaddr *) &broadcastSock, sizeof(broadcastSock)) == -1) {
+        perror("sendto macro");
+    } else if (DEBUG) {
+        printf("Broadcast envoyé sur l'IP par défaut (%s)\n", BROADCAST_IP);
+    }
+
+
+    //Code dynamique
     struct ifaddrs *ifap, *ifa;
     char host[NI_MAXHOST];
-    char buf[LBUF];
 
-    sprintf(buf, "%cBEUIP%s", Code, message);
 
     if (getifaddrs(&ifap) == -1) {
         perror("getifaddrs");
@@ -77,12 +121,12 @@ int sendBroadcastConnection(int sid, char Code, char* message) {
 
             if (s == 0) {
                 if (strncmp(host, "127.", 4) != 0) {
-                    struct sockaddr_in broadcastSock;
-                    broadcastSock.sin_family = AF_INET;
-                    broadcastSock.sin_port = htons(PORT);
-                    inet_pton(AF_INET, host, &broadcastSock.sin_addr);
+                    struct sockaddr_in broadcastSockDyn = {0};
+                    broadcastSockDyn.sin_family = AF_INET;
+                    broadcastSockDyn.sin_port = htons(PORT);
+                    inet_pton(AF_INET, host, &broadcastSockDyn.sin_addr);
 
-                    if (sendto(sid, buf, strlen(buf), 0, (struct sockaddr *) &broadcastSock, sizeof(broadcastSock)) == -1) {
+                    if (sendto(sid, buf, strlen(buf), 0, (struct sockaddr *) &broadcastSockDyn, sizeof(broadcastSockDyn)) == -1) {
                         perror("sendto dynamique");
                     } else if (DEBUG) {
                         printf("Broadcast envoyé sur l'interface %s (%s)\n", ifa->ifa_name, host);
@@ -192,8 +236,9 @@ void listeElts(void) {
 
 /// Thread principal : le Serveur UDP
 void * serveur_udp(void * p) {
-    char * pseudo_local = (char *) p;
-    int n;
+    char pseudo_local[LPSEUDO+1];
+    strncpy(pseudo_local, (char *) p, LPSEUDO);
+    pseudo_local[LPSEUDO] = '\0';    int n;
     struct sockaddr_in Sock;
     socklen_t ls;
     char buf[LBUF];
@@ -245,7 +290,10 @@ void * serveur_udp(void * p) {
                         }
                         pthread_mutex_unlock(&mutex_contacts);
 
-                        printf("\n[Message de %s] : %s\n> ", expediteur, message);
+                        printf("\r\033[K"); // Efface la ligne courante du terminal
+                        printf("[Message de %s] : %s\n", expediteur, message);
+                        rl_on_new_line();   // Dit à readline qu'on a sauté une ligne
+                        rl_redisplay();     // Demande à readline de redessiner le prompt
                         fflush(stdout);
                         break;
 
@@ -263,6 +311,7 @@ void * serveur_udp(void * p) {
     }
 
     close(sid);
+    viderListeContacts();
     return NULL;
 }
 
@@ -272,7 +321,7 @@ void commande(char octet1, char * message, char * pseudo) {
     int broadcast = 1;
     setsockopt(sid, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
-    struct sockaddr_in target_addr;
+    struct sockaddr_in target_addr = {0};
     target_addr.sin_family = AF_INET;
     target_addr.sin_port = htons(PORT);
 
@@ -396,7 +445,7 @@ void envoiContenu(int fd, char* rep) {
 void * serveur_tcp(void * rep) {
     char * repertoire = (char *) rep;
     int sid_tcp;
-    struct sockaddr_in TCP_Conf;
+    struct sockaddr_in TCP_Conf = {0};
 
     if ((sid_tcp = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket tcp");
@@ -428,6 +477,10 @@ void * serveur_tcp(void * rep) {
 
         int fd_client = accept(sid_tcp, (struct sockaddr *)&client_addr, &client_len);
 
+        if (!serveur_actif) {
+            if (fd_client >= 0) close(fd_client);
+            break;
+        }
         if (fd_client < 0) {
             if (!serveur_actif) break;
             perror("accept tcp");

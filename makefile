@@ -4,32 +4,33 @@ CFLAGS = -Wall -Werror -g
 SRC_DIR_TP1 = tp1
 SRC_DIR_TP3 = tp3
 OBJ_DIR = objects
-BIN_DIR = target
 
-# On utilise maintenant servtp3.o au lieu des fichiers du TP2
+# On compile avec servtp3.c
 OBJS = $(OBJ_DIR)/biceps.o $(OBJ_DIR)/gescom.o $(OBJ_DIR)/servtp3.o
 
-all: $(BIN_DIR)/biceps
+all: biceps
 
-$(BIN_DIR)/biceps: $(OBJS) | $(BIN_DIR)
-# Ajout de -lpthread ici pour compiler la librairie des threads
+# Cible principale (biceps à la racine)
+biceps: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -lreadline -lpthread
 
-# Règle pour les fichiers du TP1
+# Cible pour Valgrind (désactive les optimisations avec -O0)
+memory-leak: CFLAGS = -Wall -Werror -g -O0
+memory-leak: $(OBJS)
+	$(CC) $(CFLAGS) -o biceps $^ -lreadline -lpthread
+
+# Règles de compilation des objets
 $(OBJ_DIR)/%.o: $(SRC_DIR_TP1)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -I$(SRC_DIR_TP1) -c $< -o $@
 
-# Règle pour le nouveau serveur TP3
 $(OBJ_DIR)/servtp3.o: $(SRC_DIR_TP3)/servtp3.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -I$(SRC_DIR_TP3) -c $< -o $@
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-$(BIN_DIR):
-	mkdir -p $(BIN_DIR)
-
+# Nettoie tout, y compris les exécutables à la racine
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR)
+	rm -rf $(OBJ_DIR) biceps biceps-memory-leaks
 
-.PHONY: all clean
+.PHONY: all clean memory-leak

@@ -6,6 +6,9 @@
 #include <pthread.h>
 #include "gescom.h"
 #include "../tp3/servtp3.h"
+#include <readline/history.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
 static Commande tableauCommande[NBMAXC];
 static int NBCom = 0;
@@ -93,12 +96,39 @@ int Beuip(int argc, char* argv[]) {
 
         pthread_join(thread_udp, NULL);
 
-        pthread_cancel(thread_tcp);
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in addr = {0};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(9998);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+        close(sock);
+
         pthread_join(thread_tcp, NULL);
 
         printf("Serveurs arrêtés avec succès.\n");
 
-    } else if (strcmp(argv[1], "ls") == 0) {
+    }
+    else if (strcmp(argv[1], "list") == 0) {
+        if (!serveur_actif) { printf("Serveur inactif.\n"); return 1; }
+        commande('3', NULL, NULL);
+    }
+    else if (strcmp(argv[1], "message") == 0) {
+        if (!serveur_actif) { printf("Serveur inactif.\n"); return 1; }
+        if (argc < 4) {
+            printf("Utilisation: beuip message <pseudo|all> <message>\n");
+            return 1;
+        }
+        char message[1024];
+        construireMessage(argc, argv, 3, message);
+
+        if (strcmp(argv[2], "all") == 0) {
+            commande('5', message, NULL); // Message à tout le monde
+        } else {
+            commande('4', message, argv[2]); // Message à une personne
+        }
+    }
+    else if (strcmp(argv[1], "ls") == 0) {
         if (argc < 3) {
             printf("Utilisation: beuip ls <pseudo>\n");
             return 1;
@@ -128,44 +158,6 @@ int Beuip(int argc, char* argv[]) {
     return 0;
 }
 
-/// Envoi de messages (Étape 1.2)
-int Mess(int argc,char* argv[]) {
-    if (!serveur_actif) {
-        printf("Connectez vous au réseau avant d'envoyer un message (beuip start <pseudo>)\n");
-        return 1;
-    }
-    if (argc<2) {
-        printf("utilisation : mess <commande>\n");
-        return 1;
-    }
-
-    if (strcmp(argv[1],"list")==0) {
-        commande('3', NULL, NULL);
-        return 0;
-    } else if (strcmp(argv[1],"send")==0) {
-        if (argc < 4) {
-            printf("utilisation : mess send <pseudo> <message>\n");
-            return 1;
-        }
-        char message[1024];
-        construireMessage(argc,argv,3,message);
-        commande('4', message, argv[2]);
-        return 0;
-    } else if (strcmp(argv[1],"broadcast")==0) {
-        if (argc < 3) {
-            printf("utilisation : mess broadcast <message>\n");
-            return 1;
-        }
-        char message[1024];
-        construireMessage(argc,argv,2,message);
-        commande('5', message, NULL);
-        return 0;
-    }
-
-    printf("mess : commande non reconnue\n");
-    return 1;
-}
-
 void ajouteCom(char* Nom, int (*fonction)(int argc,char* argv[])) {
     if (NBCom >= NBMAXC) {
         perror("Max de commandes atteint");
@@ -184,7 +176,6 @@ void majComInt(void) {
     ajouteCom("pwd",printWorkingDirectory);
     ajouteCom("cd",changeDirectory);
     ajouteCom("beuip",Beuip);
-    ajouteCom("mess",Mess);
 }
 void listComInt(void) {
     for (int i = 0; i < NBCom; i++) {

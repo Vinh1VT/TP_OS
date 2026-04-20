@@ -29,34 +29,6 @@ void construireMessage(int argc, char* argv[], int index_debut, char* messageOut
     }
 }
 
-/// COMMANDES
-int Sortie(int argc,char* argv[]){exit(0);}
-int Vers(int argc, char* argv[]) {
-    printf("biceps version %.2f\n",VERSION);
-    return 0;
-}
-int changeDirectory(int argc,char* argv[]) {
-    if (argv[1] == NULL) {
-        perror("Pas assez d'arguments. Utilisation: cd dossier");
-        return 1;
-    }
-    if (chdir(argv[1]) == -1) {
-        perror("cd");
-        return 1;
-    }
-    return 0;
-}
-int printWorkingDirectory(int argc,char* argv[]) {
-    char * path = getcwd(NULL,0);
-    if (path != NULL) {
-        printf("%s\n",path);
-        free(path);
-    }else {
-        perror("pwd");
-    }
-    return 0;
-}
-
 /// Démarrage et extinction du serveur BEUIP (Étape 1.1 et 3.1)
 int Beuip(int argc, char* argv[]) {
     if (argc < 2) {
@@ -157,6 +129,64 @@ int Beuip(int argc, char* argv[]) {
 
     return 0;
 }
+
+
+
+
+/// COMMANDES
+int Sortie(int argc,char* argv[]){
+    (void)argc; (void)argv;
+
+    // On ferme proprement le serveur s'il est actif
+    if (serveur_actif) {
+        char* args[] = {"beuip", "stop", NULL};
+        Beuip(2, args);
+    }
+    // On libère la ligne tapée
+    if (Mots != NULL) {
+        for (int i = 0; i < NMots; i++) {
+            free(Mots[i]);
+        }
+        free(Mots);
+        Mots = NULL;
+    }
+    // On purge readline
+    clear_history();
+    exit(0);
+}
+
+int Vers(int argc, char* argv[]) {
+    (void)argc; (void)argv;
+    printf("biceps version %.2f\n",VERSION);
+    return 0;
+}
+
+int changeDirectory(int argc,char* argv[]) {
+    (void)argc;
+    if (argv[1] == NULL) {
+        perror("Pas assez d'arguments. Utilisation: cd dossier");
+        return 1;
+    }
+    if (chdir(argv[1]) == -1) {
+        perror("cd");
+        return 1;
+    }
+    return 0;
+}
+
+int printWorkingDirectory(int argc,char* argv[]) {
+    (void)argc; (void)argv;
+    char * path = getcwd(NULL,0);
+    if (path != NULL) {
+        printf("%s\n",path);
+        free(path);
+    }else {
+        perror("pwd");
+    }
+    return 0;
+}
+
+
 
 void ajouteCom(char* Nom, int (*fonction)(int argc,char* argv[])) {
     if (NBCom >= NBMAXC) {

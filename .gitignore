@@ -1,6 +1,5 @@
 # Dossiers générés par la compilation
 /objects/
-/target/
 .idea/
 *.o
 *.pdf

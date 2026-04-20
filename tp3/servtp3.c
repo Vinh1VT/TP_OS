@@ -515,7 +515,7 @@ void demandeListe(char * pseudo) {
     }
 
     int sid = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in server_addr;
+    struct sockaddr_in server_addr = {0};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT); // 9998
     inet_pton(AF_INET, ip_dest, &server_addr.sin_addr);
@@ -562,7 +562,7 @@ void demandeFichier(char * pseudo, char * nomfic) {
 
     // 2. Connexion au serveur distant
     int sid = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in server_addr;
+    struct sockaddr_in server_addr = {0};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT); // 9998
     inet_pton(AF_INET, ip_dest, &server_addr.sin_addr);

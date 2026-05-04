@@ -7,6 +7,7 @@
 #include <signal.h>
 #include "gescom.h"
 #include <readline/history.h>
+#include <stdbool.h>
 
 char* generatePrompt() {
     char* user = getenv("USER");
@@ -73,6 +74,8 @@ bool boucle() {
 
 
 int main(int argc, char** argv) {
+    (void) argc;
+    (void) argv;
     signal(SIGINT,SIG_IGN);
     majComInt();
 

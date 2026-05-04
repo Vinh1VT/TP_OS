@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Werror -g
+CFLAGS = -Wall -Wextra -Werror -g
 
 SRC_DIR_TP1 = tp1
 SRC_DIR_TP3 = tp3
